@@ -1,0 +1,2274 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale:1.0">
+    <title>考研政治 - 每日任务 (已修复)</title>
+    <!-- 引入Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* 自定义字体和全局样式 */
+        body {
+            font-family: "Inter", "Helvetica Neue", "Helvetica", "Arial", "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "WenQuanYi Micro Hei", sans-serif;
+            background-color: #f3f4f6; /* Tailwind bg-gray-100 */
+        }
+        /* 卡片翻转效果 */
+        .card {
+            transform-style: preserve-3d;
+            transition: transform 0.6s;
+        }
+        .card.is-flipped {
+            transform: rotateY(180deg);
+        }
+        .card-face, .card-back {
+            backface-visibility: hidden;
+            -webkit-backface-visibility: hidden;
+            position: absolute;
+            width: 100%;
+            height: 100%;
+        }
+        .card-back {
+            transform: rotateY(180deg);
+        }
+        /* 隐藏滚动条 */
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none; /* IE and Edge */
+            scrollbar-width: none; /* Firefox */
+        }
+        /* 按钮悬停轻微缩放 */
+        .btn-hover-scale {
+            transition: transform 0.15s ease-out;
+        }
+        .btn-hover-scale:hover {
+            transform: scale(1.03);
+        }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center p-4">
+
+<div class="w-full max-w-2xl mx-auto h-[80vh] min-h-[550px] relative">
+
+    <!-- 视图1: 加载中 -->
+    <div id="view-loading" class="app-view absolute inset-0 flex items-center justify-center h-full bg-white rounded-xl shadow-lg border border-gray-200">
+        <p class="text-gray-500 text-lg">正在初始化学习数据...</p>
+    </div>
+
+    <!-- 视图2: “今日任务”仪表盘 -->
+    <div id="view-dashboard" class="app-view absolute inset-0 hidden flex flex-col p-6 sm:p-8 bg-white rounded-xl shadow-lg border border-gray-200 h-full">
+        <header class="mb-6 text-center">
+            <h1 class="text-3xl font-bold text-gray-800 mb-2">今日任务</h1>
+            <p class="text-sm text-gray-500">根据您的复习进度智能生成</p>
+        </header>
+
+        <!-- 统计卡池 -->
+        <div class="grid grid-cols-3 gap-4 mb-6 text-center">
+            <div class="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                <span class="block text-3xl font-bold text-blue-600" id="pool-t1">0</span>
+                <span class="text-sm font-medium text-blue-800">必须复习 (T+1)</span>
+            </div>
+            <div class="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
+                <span class="block text-3xl font-bold text-yellow-600" id="pool-due">0</span>
+                <span class="text-sm font-medium text-yellow-800">到期复习 (L2+)</span>
+            </div>
+            <div class="bg-green-50 p-4 rounded-lg border border-green-200">
+                <span class="block text-3xl font-bold text-green-600" id="pool-new">0</span>
+                <span class="text-sm font-medium text-green-800">新卡片</span>
+            </div>
+        </div>
+
+        <!-- 学习套餐选择 -->
+        <div class="flex-grow flex flex-col justify-center space-y-3">
+            <h2 class="text-lg font-semibold text-gray-700 text-center mb-3">请选择今天的学习强度：</h2>
+            <!-- --- 修复 --- (更新了 data-config 的 target 数量) -->
+            <button data-action="start-session" data-config='{"target": 10, "newCardRatio": 0.5}' class="w-full py-4 px-6 bg-white text-blue-600 font-semibold rounded-lg shadow border border-blue-300 btn-hover-scale">
+                轻松学 (10 张)
+            </button>
+            <button data-action="start-session" data-config='{"target": 20, "newCardRatio": 0.4}' class="w-full py-4 px-6 bg-blue-600 text-white font-semibold rounded-lg shadow-md btn-hover-scale">
+                常规学 (20 张)
+            </button>
+            <button data-action="start-session" data-config='{"target": 40, "newCardRatio": 0.3}' class="w-full py-4 px-6 bg-blue-800 text-white font-semibold rounded-lg shadow-lg btn-hover-scale">
+                努力学 (40 张)
+            </button>
+            <div class="border-t pt-3 mt-3 space-y-3">
+                <button data-action="start-session" data-config='{"clear": "t1"}' class="w-full py-3 px-6 bg-gray-100 text-gray-700 font-semibold rounded-lg shadow-sm border border-gray-300 btn-hover-scale">
+                    [激进] 仅清空"必须复习" (<span id="clear-t1-count">0</span> 张)
+                </button>
+                <button data-action="start-session" data-config='{"clear": "allDue"}' class="w-full py-3 px-6 bg-gray-100 text-gray-700 font-semibold rounded-lg shadow-sm border border-gray-300 btn-hover-scale">
+                    [激进] 清空所有复习 (<span id="clear-all-due-count">0</span> 张)
+                </button>
+            </div>
+        </div>
+
+        <footer class="mt-6 text-center">
+            <button data-action="show-stats" class="text-sm text-gray-500 hover:text-blue-600">查看总进度与管理</button>
+        </footer>
+    </div>
+
+    <!--
+      * --- 布局修复 (遮挡问题) ---
+      * 1. #view-session 改为 "flex flex-col" 布局。
+      * 2. 新增了 "session-header" div，将按钮和进度条移入其中，使其脱离卡片。
+      * 3. <main> 元素改为 "flex-grow min-h-0" 以填充剩余空间。
+    -->
+    <div id="view-session" class="app-view absolute inset-0 hidden flex flex-col h-full bg-white rounded-xl shadow-lg border border-gray-200">
+
+        <!-- --- 新增 --- (会话头部，用于容纳按钮和进度条，解决遮挡) -->
+        <header id="session-header" class="flex-shrink-0 p-4 border-b border-gray-200">
+            <div class="flex items-center justify-between mb-3">
+                <button data-action="show-dashboard" class="py-2 px-4 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg shadow-sm border border-gray-200 hover:bg-gray-200">
+                    &larr; 退出会话
+                </button>
+                <div class="px-4 py-2 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg shadow-sm border border-gray-200">
+                    进度: <span id="session-progress">0 / 0</span>
+                </div>
+            </div>
+            <!-- --- 新增 --- (视觉进度条) -->
+            <div class="w-full bg-gray-200 rounded-full h-2.5">
+                <div id="session-progress-bar" class="bg-blue-600 h-2.5 rounded-full transition-all duration-300 ease-out" style="width: 0%"></div>
+            </div>
+        </header>
+
+        <!-- --- 修复 --- (添加 "flex-grow min-h-0" 使其填充剩余空间) -->
+        <main class="relative perspective-[1000px] w-full flex-grow min-h-0 p-4 sm:p-6">
+            <!--
+              卡片容器
+              --- 修复 ---
+              移除了所有 absolute 定位的按钮 (已移至 header)
+              将卡片的 h-full 改为 h-full (保持在 main 内部撑满)
+            -->
+            <div id="flashcard" class="card relative w-full h-full">
+                <!-- 卡片正面 (问题) -->
+                <!-- --- 修复 --- (修改了阴影、边框，使其在 main 内部显示) -->
+                <div class="card-face bg-white rounded-xl shadow-2xl border border-gray-200 flex flex-col p-6 overflow-hidden">
+                    <div class="mb-4">
+                        <span id="card-module" class="inline-block bg-indigo-100 text-indigo-800 text-xs font-semibold px-3 py-1 rounded-full">模块</span>
+                        <span id="card-submodule" class="inline-block bg-gray-100 text-gray-800 text-xs font-semibold px-3 py-1 rounded-full ml-2">子模块</span>
+                    </div>
+                    <div class="flex-grow flex flex-col justify-center overflow-hidden py-4">
+                        <!-- --- 修复 --- (字体大小
+                             从 text-3xl md:text-4xl
+                             改为 text-2xl md:text-3xl)
+                        -->
+                        <h2 id="card-title" class="text-2xl md:text-3xl font-bold text-gray-900 text-center flex-shrink-0">
+                            知识点标题
+                        </h2>
+                        <div id="card-prompts" class="mt-4 w-full text-lg text-gray-700 text-left overflow-y-auto no-scrollbar px-6" style="max-height: 25vh;">
+                            <!-- 子标题提示将在这里注入 -->
+                        </div>
+                    </div>
+                    <button data-action="reveal" class="mt-auto w-full py-3 bg-gray-800 text-white font-semibold rounded-lg shadow-md hover:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-opacity-50 transition-all">
+                        显示答案
+                    </button>
+                </div>
+
+                <!-- 卡片背面 (答案) -->
+                <!-- --- 修复 --- (修改了阴影、边框) -->
+                <div class="card-back bg-white rounded-xl shadow-2xl border border-gray-200 flex flex-col p-6 overflow-hidden">
+                    <div class="flex-shrink-0 mb-4">
+                        <span id="card-module-back" class="inline-block bg-indigo-100 text-indigo-800 text-xs font-semibold px-3 py-1 rounded-full">模块</span>
+                        <span id="card-submodule-back" class="inline-block bg-gray-100 text-gray-800 text-xs font-semibold px-3 py-1 rounded-full ml-2">子模块</span>
+                    </div>
+                    <div class="flex-grow overflow-y-auto no-scrollbar py-4">
+                        <!-- --- 修复 --- (字体大小
+                             从 text-xl
+                             改为 text-2xl md:text-3xl)
+                        -->
+                        <h3 id="card-title-back" class="text-2xl md:text-3xl font-bold text-gray-900 mb-4"></h3>
+                        <div id="card-content" class="prose prose-lg max-w-none text-gray-700">
+                            <!-- 内容将在这里填充 -->
+                        </div>
+                    </div>
+                    <!-- 评级按钮 -->
+                    <div class="flex-shrink-0 grid grid-cols-3 gap-4 pt-4 border-t border-gray-200">
+                        <button data-action="rate-forgot" class="py-3 bg-red-500 text-white font-semibold rounded-lg shadow-md hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-red-400 focus:ring-opacity-50 transition-all">
+                            不记得
+                        </button>
+                        <button data-action="rate-hard" class="py-3 bg-yellow-500 text-white font-semibold rounded-lg shadow-md hover:bg-yellow-600 focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:ring-opacity-50 transition-all">
+                            困难
+                        </button>
+                        <button data-action="rate-remember" class="py-3 bg-green-500 text-white font-semibold rounded-lg shadow-md hover:bg-green-600 focus:outline-none focus:ring-2 focus:ring-green-400 focus:ring-opacity-50 transition-all">
+                            记得
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- 视图4: 统计与管理 -->
+    <div id="view-stats" class="app-view absolute inset-0 hidden flex flex-col p-6 sm:p-8 bg-white rounded-xl shadow-lg border border-gray-200 h-full">
+        <header class="mb-6 flex items-center">
+            <button data-action="show-dashboard" class="mr-4 py-2 px-3 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg shadow-sm border border-gray-200 hover:bg-gray-200">
+                &larr; 返回
+            </button>
+            <h1 class="text-2xl font-bold text-gray-800">总进度与管理</h1>
+        </header>
+
+        <!-- 总进度 -->
+        <h2 class="text-lg font-semibold text-gray-700 mb-3">总知识点掌握情况</h2>
+        <div id="stats-counters" class="grid grid-cols-3 gap-4 mb-6 text-center">
+            <div class="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                <span class="block text-3xl font-bold text-blue-600" id="count-new">0</span>
+                <span class="text-sm font-medium text-blue-800">未学习</span>
+            </div>
+            <div class="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
+                <span class="block text-3xl font-bold text-yellow-600" id="count-learning">0</span>
+                <span class="text-sm font-medium text-yellow-800">易遗忘 (L1-L2)</span>
+            </div>
+            <div class="bg-green-50 p-4 rounded-lg border border-green-200">
+                <span class="block text-3xl font-bold text-green-600" id="count-mastered">0</span>
+                <span class="text-sm font-medium text-green-800">已掌握 (L3+)</span>
+            </div>
+        </div>
+        <p id="stats-total" class="text-sm text-center text-gray-600 -mt-2 mb-6">总共 0 个知识点</p>
+
+        <!-- 数据管理 -->
+        <h2 class="text-lg font-semibold text-gray-700 mb-3">数据管理</h2>
+        <div class="space-y-3">
+            <button data-action="export-progress" class="w-full py-3 px-6 bg-blue-600 text-white font-semibold rounded-lg shadow-md hover:bg-blue-700 focus:outline-none">
+                导出学习进度
+            </button>
+            <button data-action="import-progress" class="w-full py-3 px-6 bg-white text-blue-600 font-semibold rounded-lg shadow border border-blue-300 hover:bg-blue-50 focus:outline-none">
+                导入学习进度
+            </button>
+            <input type="file" id="import-file-input" class="hidden" accept=".json">
+        </div>
+
+        <!-- 危险区域 -->
+        <div class="mt-auto pt-6 border-t border-gray-200">
+            <button data-action="reset-progress" class="w-full py-3 px-6 bg-red-100 text-red-700 font-semibold rounded-lg shadow-sm border border-red-200 hover:bg-red-200 focus:outline-none">
+                重置所有学习进度
+            </button>
+        </div>
+    </div>
+</div>
+
+<script type="module">
+    // --- 1. 内嵌数据 (数据内容与原版一致) ---
+    const embeddedData = {
+        "考研政治知识点总集": [
+            {
+                "模块": "马原",
+                "子模块": "基本知识",
+                "知识点列表": [
+                    {
+                        "知识点序号": 1,
+                        "知识点标题": "科学社会主义的核心命题",
+                        "知识点内容": [
+                            "资本主义必然灭亡",
+                            "社会主义必然胜利"
+                        ]
+                    },
+                    {
+                        "知识点序号": 2,
+                        "知识点标题": "马恩第一个无产阶级政党",
+                        "知识点内容": [
+                            "马克思和恩格斯建立的第一个无产阶级政党：共产主义者同盟"
+                        ]
+                    },
+                    {
+                        "知识点序号": 3,
+                        "知识点标题": "世界的物质统一性原理",
+                        "知识点内容": [
+                            "辩证唯物主义最基本最核心的观点",
+                            "马克思主义的基石"
+                        ]
+                    },
+                    {
+                        "知识点序号": 4,
+                        "知识点标题": "一个错误说法",
+                        "知识点内容": [
+                            "理论联系实际，不是实践符合理论",
+                            "用实践套理论=本本主义",
+                            "用实践发展理论=中国化"
+                        ]
+                    },
+                    {
+                        "知识点序号": 5,
+                        "知识点标题": "理解政治经济学的枢纽",
+                        "知识点内容": [
+                            "核心枢纽：劳动二重性理论",
+                            "辨析：马克思经济学说的核心内容和基石是剩余价值理论"
+                        ]
+                    },
+                    {
+                        "知识点序号": 6,
+                        "知识点标题": "六个寓于",
+                        "知识点内容": [
+                            "价值寓于使用价值之中（J>S）",
+                            "必然性寓于偶然性之中（B>O）",
+                            "斗争性寓于同一性之中（D>T）",
+                            "绝对性寓于相对性质中（J>X）",
+                            "普遍性寓于特殊性之中（P>T）",
+                            "共性寓于个性之中（G=G）",
+                            "核心规则：寓于的前面一定是绝对的、无条件的，要寓于有条件的"
+                        ]
+                    },
+                    {
+                        "知识点序号": 7,
+                        "知识点标题": "马克思主义的基本特征",
+                        "知识点内容": [
+                            "本质属性：人民性",
+                            "区别于其他理论的根本特征（显著特征）：实践性",
+                            "首要的、基本的观点：实践的观点",
+                            "基本特征概括：科学性与革命性的统一（科命）"
+                        ]
+                    },
+                    {
+                        "知识点序号": 8,
+                        "知识点标题": "唯物史观和剩余价值学说",
+                        "知识点内容": [
+                            "社会主义由空想变为科学的两大基石",
+                            "马克思一生的两个伟大发现"
+                        ]
+                    },
+                    {
+                        "知识点序号": 9,
+                        "知识点标题": "人的发展",
+                        "知识点内容": [
+                            "定义：社会历史过程，包括人类整体和个体发展，涉及体力、智力、个性、交往能力发展",
+                            "核心：最根本的是人的自由程度提高",
+                            "根本目标：无论社会还是个人，均为“人的自由全面的发展”"
+                        ]
+                    },
+                    {
+                        "知识点序号": 10,
+                        "知识点标题": "对立统一规律",
+                        "知识点内容": [
+                            "核心定位：唯物辩证法的实质和核心",
+                            "原因1：揭示事物普遍联系的根本内容和变化发展的内在动力，回答“事物为什么会发展”",
+                            "原因2：贯穿质量互变规律、否定之否定规律及唯物辩证法基本范畴的中心线索，是理解这些规律和范畴的钥匙",
+                            "原因3：提供认识世界和改造世界的根本方法——矛盾分析方法"
+                        ]
+                    },
+                    {
+                        "知识点序号": 11,
+                        "知识点标题": "马克思主义的三大组成部分",
+                        "知识点内容": [
+                            "马克思主义哲学：基础和方法",
+                            "马克思主义政治经济学：主体内容",
+                            "科学社会主义：目的和归宿",
+                            "著作标志：《德意志意识形态》（马哲诞生）、《资本论》（政经诞生）、《共产党宣言》（科社及整个马克思主义诞生）、《反杜林论》（首次全面阐述三个组成部分）",
+                            "世界观和方法论基础：辩证唯物主义和历史唯物主义"
+                        ]
+                    },
+                    {
+                        "知识点序号": 12,
+                        "知识点标题": "马克思主义相关著作",
+                        "知识点内容": [
+                            "《德法年鉴》：完成两个转变（唯心→唯物、革命民主主义→共产主义），奠定思想前提",
+                            "《神圣家族》：马恩合著第一部著作，批判黑格尔维新，论述历史唯物",
+                            "《德意志意识形态》：首次系统阐述历史唯物主义基本观点",
+                            "《共产党宣言》：标志马克思主义公开问世",
+                            "《资本论》：被称为“工人阶级的圣经”",
+                            "《法兰西内战》：科学总结巴黎公社历史经验",
+                            "《哥达纲领批判》：对未来社会制度、发展阶段及分配作原则构想",
+                            "《反社林论》：全面阐述马克思主义理论体系，被称为“百科全书”",
+                            "恩格斯晚年导言观点：社会主义革命胜利是长期过程、重视资产阶级民主和普选权、不否定暴力革命",
+                            "伯恩施坦修正主义：反对无产阶级革命，主张资本主义“和平长入”社会主义"
+                        ]
+                    }
+                ]
+            },
+            {
+                "模块": "马原",
+                "子模块": "资本",
+                "知识点列表": [
+                    {
+                        "知识点序号": 13,
+                        "知识点标题": "金融资本形成的主要途径",
+                        "知识点内容": [
+                            "金融联系",
+                            "资本参与",
+                            "人事参与"
+                        ]
+                    },
+                    {
+                        "知识点序号": 14,
+                        "知识点标题": "货币最基本的职能",
+                        "知识点内容": [
+                            "价值尺度",
+                            "流通手段"
+                        ]
+                    },
+                    {
+                        "知识点序号": 15,
+                        "知识点标题": "货币职能",
+                        "知识点内容": [
+                            "支付手段：涵盖偿还债务、缴纳赋税、支付工资、支付租金"
+                        ]
+                    },
+                    {
+                        "知识点序号": 16,
+                        "知识点标题": "资本主义国家内部的矛盾",
+                        "知识点内容": [
+                            "经济发展失调：虚拟经济与实体经济失衡、福利风险增加、债务负担沉重",
+                            "政治体制失灵：选举问题、政党利益争夺、民主陷阱、精英政治",
+                            "社会融合机制失效：极端思潮抬头、社会流动性退化、社会矛盾激化"
+                        ]
+                    },
+                    {
+                        "知识点序号": 17,
+                        "知识点标题": "垄断资本向世界范围扩展的基本形式",
+                        "知识点内容": [
+                            "借贷资本输出",
+                            "生产资本输出",
+                            "商品资本输出",
+                            "辨析：资本循环中的三种职能（货币资本、生产资本、商品资本）"
+                        ]
+                    },
+                    {
+                        "知识点序号": 18,
+                        "知识点标题": "金融寡头控制形式",
+                        "知识点内容": [
+                            "经济领域：通过“参与制”（股票）实现统治",
+                            "政治领域：通过同政府的“个人联合”控制国家机器",
+                            "社会影响：建立政策咨询机构，掌握新闻、科教、文化等"
+                        ]
+                    },
+                    {
+                        "知识点序号": 19,
+                        "知识点标题": "国际金融垄断资本主义",
+                        "知识点内容": [
+                            "核心特征：国际金融资本的垄断是当代资本主义最突出、最鲜明、最主要的特征",
+                            "具体表现：金融垄断寡头化、金融垄断国际化、经济虚拟化、产业空心化",
+                            "制度条件：金融自由化与金融创新",
+                            "影响：虚拟经济越来越脱离实体经济"
+                        ]
+                    },
+                    {
+                        "知识点序号": 20,
+                        "知识点标题": "所有制辨析",
+                        "知识点内容": [
+                            "私人股份所有制：所有权和控制权不再统一",
+                            "法人资本所有制：狠狠独揽大权"
+                        ]
+                    },
+                    {
+                        "知识点序号": 21,
+                        "知识点标题": "资本周转快慢",
+                        "知识点内容": [
+                            "关键影响因素1：资本周转的时间",
+                            "关键影响因素2：生产资本中固定资本和流动资本的构成"
+                        ]
+                    },
+                    {
+                        "知识点序号": 22,
+                        "知识点标题": "资本积累",
+                        "知识点内容": [
+                            "唯一源泉：剩余价值",
+                            "核心作用：资本主义扩大再生产的源泉",
+                            "社会影响：导致资本主义社会两极分化",
+                            "必然结果：资本有机构成提高，进而产生失业问题",
+                            "历史意义：资本主义制度走向灭亡的自我否定因素",
+                            "规律：资本有机构成提高是一般趋势，由资本本性决定，不会减少"
+                        ]
+                    },
+                    {
+                        "知识点序号": 23,
+                        "知识点标题": "生产资本的划分方式",
+                        "知识点内容": [
+                            "划分标准1（是否增值）：不变资本、可变资本",
+                            "划分标准2（循环职能）：货币资本、生产资本、商品资本",
+                            "划分标准3（周转方式）：固定资本、流动资本"
+                        ]
+                    },
+                    {
+                        "知识点序号": 24,
+                        "知识点标题": "不变资本和可变资本",
+                        "知识点内容": [
+                            "划分依据：在剩余价值生产中所起的不同作用",
+                            "不变资本：以生产资料形态存在，价值通过具体劳动转移（可一次或多次转移）",
+                            "可变资本：购买劳动力的资本，价值由工人劳动再生产",
+                            "新价值构成：工人创造的新价值=劳动力价值+剩余价值",
+                            "剩余价值定义：雇佣工人创造并被资本家无偿占有的超过劳动力价值的部分，是剩余劳动的凝结",
+                            "发展趋势：技术进步→不变资本增加→可变资本占比减少→每个劳动力推动的生产资料数量大幅增加",
+                            "规律：技术变化则资本有机构成变化；技术不变则资本有机构成不变",
+                            "结论：失业无法消除"
+                        ]
+                    },
+                    {
+                        "知识点序号": 25,
+                        "知识点标题": "资本主义工资",
+                        "知识点内容": [
+                            "表现假象：劳动的价值或价格",
+                            "本质：劳动力的价值或价格",
+                            "核心逻辑：工人出卖的是劳动力（商品），而非劳动（非商品）"
+                        ]
+                    }
+                ]
+            },
+            {
+                "模块": "马原",
+                "子模块": "矛盾",
+                "知识点列表": [
+                    {
+                        "知识点序号": 26,
+                        "知识点标题": "矛盾相关核心内容",
+                        "知识点内容": [
+                            "资本主义基本矛盾：生产社会化和生产资料资本主义私人占有之间的矛盾",
+                            "私有制商品经济基本矛盾：私人劳动和社会劳动的矛盾（决定商品经济本质及发展过程、是其他矛盾基础、决定商品生产者命运）",
+                            "派生矛盾：使用价值与价值的矛盾、具体劳动与抽象劳动的矛盾（根源于私人劳动和社会劳动的矛盾）",
+                            "社会形态更替：归根结底是社会基本矛盾运动的结果，生产力发展具有最终决定意义"
+                        ]
+                    }
+                ]
+            },
+            {
+                "模块": "马原",
+                "子模块": "生产和价值",
+                "知识点列表": [
+                    {
+                        "知识点序号": 27,
+                        "知识点标题": "社会再生产的核心问题",
+                        "知识点内容": [
+                            "核心问题：社会总产品的实现问题",
+                            "具体内涵：社会总产品的价值补偿和实物补偿问题"
+                        ]
+                    },
+                    {
+                        "知识点序号": 28,
+                        "知识点标题": "社会",
+                        "知识点内容": [
+                            "生产力：生产的物质内容",
+                            "生产关系：生产的社会形式",
+                            "生产方式：生产力与生产关系的统一",
+                            "社会形态更替：归根结底是社会基本矛盾运动的结果，生产力发展具有最终决定意义"
+                        ]
+                    },
+                    {
+                        "知识点序号": 29,
+                        "知识点标题": "价值规律的作用",
+                        "知识点内容": [
+                            "作用1：自发调节生产资料和劳动力在各生产部门的分配比例",
+                            "作用2：自发刺激社会生产力的发展",
+                            "作用3：自发调节社会收入的分配",
+                            "错误说法：自发调节雇佣工人与资本家之间的利益再分配"
+                        ]
+                    },
+                    {
+                        "知识点序号": 30,
+                        "知识点标题": "超额和相对剩余价值",
+                        "知识点内容": [
+                            "主观动机：单个资本家改进技术、改善管理是为了追求超额剩余价值",
+                            "客观后果：全社会劳动生产率普遍提高→生活资料价值下降→必要劳动时间缩短→剩余劳动时间延长→资本家阶级普遍获得相对剩余价值",
+                            "助记：超额对应原因（个别），相对对应结果（社会）"
+                        ]
+                    },
+                    {
+                        "知识点序号": 31,
+                        "知识点标题": "劳动生产率",
+                        "知识点内容": [
+                            "定义：劳动者生产使用价值的效率",
+                            "测量方式1：单位劳动时间内生产的商品数量",
+                            "测量方式2：单位商品中耗费的劳动时间",
+                            "价值量关系：商品价值由劳动量决定（劳动量按劳动时间计量），单位劳动时间内价值总量不变"
+                        ]
+                    },
+                    {
+                        "知识点序号": 32,
+                        "知识点标题": "垄断价格",
+                        "知识点内容": [
+                            "垄断高价：卖得贵",
+                            "垄断低价：买得便宜（原材料低价，正常价卖出）",
+                            "核心特征：均为盈利价格，不低于原材料价格，不抵消价值总额",
+                            "价值总额关系：全社会商品价格总额=价值总额",
+                            "垄断利润形成关键：垄断组织在经济生活中起决定性作用",
+                            "垄断未消除竞争的原因：未消除竞争经济条件、垄断需通过竞争维持、社会生产复杂多样无法完全垄断",
+                            "竞争手段差异：自由竞争以经济手段为主，垄断竞争兼具经济和非经济手段"
+                        ]
+                    }
+                ]
+            },
+            {
+                "模块": "马原",
+                "子模块": "计算",
+                "知识点列表": [
+                    {
+                        "知识点序号": 33,
+                        "知识点标题": "政经计算",
+                        "知识点内容": [
+                            "核心概念：不变资本（C）、可变资本（V）、剩余价值（M）",
+                            "核心公式：投资（成本）=C+V；资本有机构成=C:V；剩余价值率=M:V；利润=M",
+                            "示例：投资100万元（C+V=100），有机构成3:1→C=75万、V=25万；剩余价值率200%→M=50万→利润=50万"
+                        ]
+                    },
+                    {
+                        "知识点序号": 34,
+                        "知识点标题": "绝对和相对剩余价值计算",
+                        "知识点内容": [
+                            "绝对剩余价值生产：延长总工作时间",
+                            "相对剩余价值生产：总时间不变，通过技术缩短必要劳动时间",
+                            "共同本质：均延长工人剩余劳动时间",
+                            "计算公式：剩余价值率=剩余劳动时间÷必要劳动时间×100%",
+                            "示例1（绝对）：原8小时（必要4+剩余4），延长剩余2小时→剩余价值率=6÷4×100%=150%",
+                            "示例2（相对）：原8小时（必要4+剩余4），缩短必要2小时→剩余价值率=6÷2×100%=300%"
+                        ]
+                    }
+                ]
+            },
+            {
+                "模块": "马原",
+                "子模块": "国际相关",
+                "知识点列表": [
+                    {
+                        "知识点序号": 35,
+                        "知识点标题": "列宁相关论述",
+                        "知识点内容": [
+                            "帝国主义特征：垄断组织在经济生活中起决定作用",
+                            "社会主义革命胜利：可首先在一个或几个国家获得胜利",
+                            "社会主义建设思考（新经济政策期间）：建设是长期探索过程、优先发展生产力和劳动生产率、利用商品货币市场、利用资本主义建设社会主义",
+                            "执政党建设：强调重要性，阐明思想文化建设意义，提出政权建设和民主措施",
+                            "政治遗嘱新构想：合作社引农民入社会主义、发展大工业实现工业化电气化、学习资本主义有价值成果、文化革命、机构改革、反对官僚主义、维护党的团结"
+                        ]
+                    },
+                    {
+                        "知识点序号": 36,
+                        "知识点标题": "战时共产主义与新经济政策",
+                        "知识点内容": [
+                            "战时共产主义：余粮收集制、取消商品货币关系（保障军队作战）",
+                            "新经济政策（列宁）：恢复商品货币关系、发展资本主义（活跃战后经济）",
+                            "苏联模式（斯大林）：农业合作化（发展社会主义）",
+                            "列宁历史地位：为社会主义奠定基础，未发展社会主义",
+                            "新经济政策具体措施：农业（粮食税制）、工业（部分私营+国家资本主义）、贸易（自由贸易）、分配（按劳分配）、流通（恢复商品货币）"
+                        ]
+                    },
+                    {
+                        "知识点序号": 37,
+                        "知识点标题": "巴黎公社",
+                        "知识点内容": [
+                            "爆发时间：1871年",
+                            "性质：第一国际精神产儿，无产阶级夺取政权的第一次伟大尝试",
+                            "关键措施（防公仆变主人）：公职人员选举制和撤换制、取消高薪制（年薪不超熟练工人）",
+                            "辨析：建立的是政权而非政党；俄国十月革命建立苏维埃大会制度；非第一国际发动领导，仅受其精神影响"
+                        ]
+                    }
+                ]
+            },
+            {
+                "模块": "史纲",
+                "子模块": "旧民主主义革命阶段",
+                "知识点列表": [
+                    {
+                        "知识点序号": 38,
+                        "知识点标题": "清末新政",
+                        "知识点内容": [
+                            "核心措施：裁撤绿营，建立新军"
+                        ]
+                    },
+                    {
+                        "知识点序号": 39,
+                        "知识点标题": "同盟会起义",
+                        "知识点内容": [
+                            "影响最大：黄花岗起义（又称广州起义、广州三二九起义）",
+                            "成立后首次：萍浏醴起义",
+                            "辨析：三元里抗英是中国近代史上第一次大规模反侵略武装斗争"
+                        ]
+                    },
+                    {
+                        "知识点序号": 40,
+                        "知识点标题": "戊戌维新",
+                        "知识点内容": [
+                            "核心定位：中国民族资产阶级登上政治舞台的第一次表演"
+                        ]
+                    },
+                    {
+                        "知识点序号": 41,
+                        "知识点标题": "林则徐、严复、魏源、郑观应",
+                        "知识点内容": [
+                            "林则徐：《四洲志》，睁眼看世界第一人",
+                            "严复：主张救亡图存",
+                            "魏源：《海国图志》，提出“师夷长技以制夷”",
+                            "郑观应：《盛世危言》，主张“君民共主”"
+                        ]
+                    },
+                    {
+                        "知识点序号": 42,
+                        "知识点标题": "思想交锋",
+                        "知识点内容": [
+                            "维新派与守旧派论战：近代资产阶级思想与封建主义思想第一次正面交锋，开阔眼界、解放思想、传播西方学说、拉开戊戌变法帷幕",
+                            "维新派与洋务派分歧实质：是否学习西方政治制度与思想文化（维新派全学，洋务派只学技术）"
+                        ]
+                    }
+                ]
+            },
+            {
+                "模块": "史纲",
+                "子模块": "新文化及五四运动",
+                "知识点列表": [
+                    {
+                        "知识点序号": 43,
+                        "知识点标题": "中国早期信仰马克思主义的人物的队伍",
+                        "知识点内容": [
+                            "构成：三种人组成",
+                            "主体部分：五四爱国运动的左翼骨干"
+                        ]
+                    },
+                    {
+                        "知识点序号": 44,
+                        "知识点标题": "新文化运动",
+                        "知识点内容": [
+                            "五四前核心：改造国民性置于优先地位",
+                            "武器：进化观点和个性解放思想",
+                            "批判对象：以孔子为代表的“往圣先贤”，动摇封建正统思想统治",
+                            "核心主张：新道德反旧道德、新文学反旧文学（含白话文反文言文）、民主反专制、科学反迷信",
+                            "局限性：无马克思主义批判精神，看问题片面",
+                            "目的：为发展资本主义扫清障碍"
+                        ]
+                    },
+                    {
+                        "知识点序号": 45,
+                        "知识点标题": "李大钊",
+                        "知识点内容": [
+                            "历史地位：率先举起马克思主义旗帜，中国第一个马克思主义者",
+                            "著作及意义：《法俄革命之比较观》（阐述十月革命性质）、《庶民的胜利》《布尔什维主义的胜利》（歌颂十月革命）、《我的马克思主义观》（系统介绍马克思主义，标志系统传播）"
+                        ]
+                    }
+                ]
+            },
+            {
+                "模块": "史纲",
+                "子模块": "帽子题及易混对比",
+                "知识点列表": [
+                    {
+                        "知识点序号": 46,
+                        "知识点标题": "土地政策",
+                        "知识点内容": [
+                            "土地革命时期：限制富农",
+                            "抗日战争时期：减租减息",
+                            "解放战争时期：征收富农多余土地",
+                            "新中国成立初期：保存富农经济"
+                        ]
+                    },
+                    {
+                        "知识点序号": 47,
+                        "知识点标题": "工人罢工运动",
+                        "知识点内容": [
+                            "起点：香港海员罢工",
+                            "终点（高潮）：京汉铁路罢工",
+                            "完全胜利：安源路矿罢工",
+                            "非完全胜利：开滦五矿罢工",
+                            "持续最长：省港大罢工"
+                        ]
+                    },
+                    {
+                        "知识点序号": 48,
+                        "知识点标题": "中心问题",
+                        "知识点内容": [
+                            "中国革命的中心问题：无产阶级领导权",
+                            "国民革命的中心问题：农民问题"
+                        ]
+                    },
+                    {
+                        "知识点序号": 49,
+                        "知识点标题": "延安整风运动",
+                        "知识点内容": [
+                            "重点：教条主义",
+                            "最主要任务：反对主观主义",
+                            "第一个重要问题：学风问题",
+                            "相关方针：“惩前毖后、治病救人”（对待犯错误同志）"
+                        ]
+                    },
+                    {
+                        "知识点序号": 50,
+                        "知识点标题": "精神辨析",
+                        "知识点内容": [
+                            "五四精神：爱国、进步、民主、科学，核心是爱国主义",
+                            "黄埔精神：爱国、革命"
+                        ]
+                    },
+                    {
+                        "知识点序号": 51,
+                        "知识点标题": "台儿庄大捷",
+                        "知识点内容": [
+                            "定位：抗战爆发后正面战场首次重大胜利",
+                            "主体：国民党正面战场",
+                            "时间：1938年"
+                        ]
+                    },
+                    {
+                        "知识点序号": 52,
+                        "知识点标题": "秋收起义与南昌起义",
+                        "知识点内容": [
+                            "区别：秋收起义（工农革命军旗帜，有工农武装参加）；南昌起义（国民革命军旗帜）",
+                            "联系：均以攻打中心城市为目标，受挫后调整策略；均为共产党独立领导的革命战争"
+                        ]
+                    },
+                    {
+                        "知识点序号": 53,
+                        "知识点标题": "统一战线辨析",
+                        "知识点内容": [
+                            "大革命后：工农民主统一战线（民族资产阶级、小资产阶级追随国民党，仅剩工农）",
+                            "解放战争时期：人民民主统一战线（争取工农、富农、民族资产阶级等）"
+                        ]
+                    },
+                    {
+                        "知识点序号": 54,
+                        "知识点标题": "维新派和辛亥革命对比",
+                        "知识点内容": [
+                            "维新派：传播民主思想、解放思想、打破封建思想壁垒、推动教育发展",
+                            "辛亥革命：结束封建君主专制制度、建立第一个资产阶级共和政府、民主共和观念深入人心"
+                        ]
+                    },
+                    {
+                        "知识点序号": 55,
+                        "知识点标题": "党对军队的绝对领导",
+                        "知识点内容": [
+                            "发端：南昌起义",
+                            "奠基：三湾改编（支部建在连上，新型人民军队建设开端）",
+                            "定型：古田会议（确立马克思主义建党建军原则）"
+                        ]
+                    },
+                    {
+                        "知识点序号": 56,
+                        "知识点标题": "新旧三民主义",
+                        "知识点内容": [
+                            "旧三民主义：驱除鞑虏，恢复中华；创立民国；平均地权",
+                            "新三民主义：民族（反帝、独立、平等）、民权（平民共有）、民生（平均地权、节约资本、耕者有其田）",
+                            "辨析：无“民主”内容，有则错误；新三民主义与共产党民主革命纲领基本一致，是国共合作政治基础"
+                        ]
+                    }
+                ]
+            },
+            {
+                "模块": "史纲",
+                "子模块": "革命阶段转折与著作",
+                "知识点列表": [
+                    {
+                        "知识点序号": 57,
+                        "知识点标题": "旧民主主义革命的终结和新民主主义革命的开端",
+                        "知识点内容": [
+                            "旧民主主义革命终结标志：护法运动失败",
+                            "新民主主义革命开端标志：五四运动",
+                            "核心问题：无产阶级领导权（区分新旧民主主义革命的根本标志）",
+                            "新民主主义革命性质：资产阶级民主主义革命（新式、特殊）"
+                        ]
+                    },
+                    {
+                        "知识点序号": 58,
+                        "知识点标题": "转折点",
+                        "知识点内容": [
+                            "1947年杨家沟会议：中国革命历史转折点（蒋介石反革命统治、帝国主义在华统治由发展到消灭）",
+                            "1949年进驻北平香山：革命重心从农村转向城市",
+                            "辨析：秋收起义（城市转农村）、长征（挫折到胜利转折）、抗战胜利（民族复兴转折）"
+                        ]
+                    },
+                    {
+                        "知识点序号": 59,
+                        "知识点标题": "毛泽东思想形成与发展各时期著作",
+                        "知识点内容": [
+                            "开始萌芽（新民主主义提出）：《中国社会各阶级分析》《国民革命与农民运动》《湖南农民运动考察报告》",
+                            "开始形成（土地革命时期）：《中国的红色政权为什么能够存在》《星星之火可以燎原》《井冈山的斗争》《反对本本主义》",
+                            "趋于成熟（新民主主义系统阐述）：《实践论》《矛盾论》《〈共产党人〉发刊词》《中国革命和中国共产党》《新民主主义论》《改造我们的学习》《论联合政府》",
+                            "继续发展：《七届二中全会报告》《在晋绥干部会议上的讲话》《论人民民主专政》《论十大关系》《关于正确处理人民内部矛盾的问题》",
+                            "命名：中共七大",
+                            "重点著作详解：《湖南农民运动考察报告》（总结辛亥革命失败）、《中国社会各阶级分析》（革命首要问题）、《反对本本主义》（独立自主思想）、《论联合政府》（新民主主义纲领）、《论十大关系》（探索社会主义建设）、《关于正确处理人民内部矛盾的问题》（工业化道路）、《论人民民主专政》（新中国政权理论）"
+                        ]
+                    }
+                ]
+            },
+            {
+                "模块": "史纲",
+                "子模块": "三大辨析与重要专题",
+                "知识点列表": [
+                    {
+                        "知识点序号": 60,
+                        "知识点标题": "党的三大优良作风",
+                        "知识点内容": [
+                            "理论联系实际",
+                            "密切联系群众",
+                            "批评与自我批评",
+                            "提出会议：1945年中共七大"
+                        ]
+                    },
+                    {
+                        "知识点序号": 61,
+                        "知识点标题": "新民主主义革命三大法宝",
+                        "知识点内容": [
+                            "统一战线",
+                            "武装斗争",
+                            "党的建设",
+                            "提出著作：1939年《〈共产党人〉发刊词》"
+                        ]
+                    },
+                    {
+                        "知识点序号": 62,
+                        "知识点标题": "统一战线相关拓展",
+                        "知识点内容": [
+                            "建立必要性：阶级状况、革命长期性和不平衡性",
+                            "建立可能性：社会诸多矛盾交织",
+                            "抗日民族统一战线策略总方针：发展进步势力、争取中间势力、孤立顽固势力",
+                            "三三制原则：共产党员、党外进步人士、中间派各占1/3"
+                        ]
+                    },
+                    {
+                        "知识点序号": 63,
+                        "知识点标题": "工农武装割据",
+                        "知识点内容": [
+                            "核心内容：土地革命、武装斗争、根据地建设",
+                            "相互关系：土地革命是基本内容、武装斗争是主要形式、根据地是战略阵地",
+                            "辨析：“发展进步势力、争取中间势力、孤立顽固势力”是抗日民族统一战线策略总方针"
+                        ]
+                    },
+                    {
+                        "知识点序号": 64,
+                        "知识点标题": "毛泽东思想活的灵魂",
+                        "知识点内容": [
+                            "核心内涵：实事求是、群众路线、独立自主",
+                            "实事求是定位：基本点、精髓、党的思想路线核心",
+                            "群众路线定位：生命线、根本工作路线、传家宝",
+                            "独立自主定位：民族优秀传统、民族精神之魂、立党立国重要原则",
+                            "延伸：走自己的路（理论实践立足点）、中华优秀传统文化（根和魂）"
+                        ]
+                    },
+                    {
+                        "知识点序号": 65,
+                        "知识点标题": "马克思主义中国化",
+                        "知识点内容": [
+                            "三次飞跃：中共七大（毛泽东思想）、改革开放后（中国特色社会主义理论体系）、习近平新时代中国特色社会主义思想（新的飞跃）",
+                            "两次结合：与中国革命实际结合（六届六中全会提出命题）、与中国社会主义建设实际结合（1956年《论十大关系》）",
+                            "最新两个结合：与中国具体实际结合、与中华优秀传统文化结合",
+                            "魂脉与根脉：马克思主义（魂脉）、中华优秀传统文化（根脉）",
+                            "辨析：毛泽东思想无“改革”，中国特色社会主义理论体系无“革命”"
+                        ]
+                    },
+                    {
+                        "知识点序号": 66,
+                        "知识点标题": "我国的主要矛盾改变",
+                        "知识点内容": [
+                            "中共八大（毛泽东时期）：人民对经济文化迅速发展的需要同当前经济文化不能满足人民需要的矛盾；人民对先进工业国的要求同落后农业国现实的矛盾",
+                            "十一届六中全会（邓小平时期）：人民日益增长的物质文化需要同落后的社会生产的矛盾",
+                            "中共十九大（习近平时期）：人民日益增长的美好生活需要和不平衡不充分的发展的矛盾"
+                        ]
+                    },
+                    {
+                        "知识点序号": 67,
+                        "知识点标题": "关于思想路线",
+                        "知识点内容": [
+                            "《实践论》《矛盾论》：论证马列主义与中国实际结合，阐明思想路线",
+                            "延安整风：确立实事求是思想路线",
+                            "真理标准问题讨论：马克思主义思想解放运动，为改革开放作思想准备",
+                            "十一届三中全会：重新确立解放思想、实事求是的思想路线"
+                        ]
+                    },
+                    {
+                        "知识点序号": 68,
+                        "知识点标题": "会议（1921-1978）",
+                        "知识点内容": [
+                            "中共一大：立党",
+                            "中共二大：制定纲领",
+                            "中共三大：国共合作方针",
+                            "国民党一大：国共合作正式形成",
+                            "中共四大：领导工农联盟",
+                            "八七会议：枪杆子里出政权，土地革命和武装起义方针",
+                            "古田会议：马克思主义建党建军原则",
+                            "遵义会议：独立自主解决中国革命实际问题",
+                            "瓦窑堡会议：抗日民族统一战线方针",
+                            "洛川会议：全面全民族抗战纲领",
+                            "六届六中全会：提出“马克思主义中国化”命题",
+                            "中共七大：确立毛泽东思想为指导思想",
+                            "七届二中全会：两个务必，工作重心转城市",
+                            "十一届三中全会：改革开放，重新确立三大路线",
+                            "补充：几届几中全会职能（一中二中人事、三中经济、四中重大决策等）"
+                        ]
+                    }
+                ]
+            },
+            {
+                "模块": "史纲",
+                "子模块": "建国后",
+                "知识点列表": [
+                    {
+                        "知识点序号": 69,
+                        "知识点标题": "建国初期三大外交政策",
+                        "知识点内容": [
+                            "一边倒",
+                            "另起炉灶",
+                            "打扫干净屋子再请客"
+                        ]
+                    },
+                    {
+                        "知识点序号": 70,
+                        "知识点标题": "中国社会的阶级构成（新民主主义时期）",
+                        "知识点内容": [
+                            "工人阶级：革命最基本的动力",
+                            "农民阶级：革命主力军，农民问题是基本问题",
+                            "小资产阶级",
+                            "民族资产阶级"
+                        ]
+                    },
+                    {
+                        "知识点序号": 71,
+                        "知识点标题": "多党合作和政治协商格局的形成",
+                        "知识点内容": [
+                            "五一口号：揭开序幕，奠定基础",
+                            "《对时局的意见》：各党派接受共产党领导",
+                            "毛泽东1949年春谈话：“积极参政，共同建设新中国”，民主党派地位根本变化"
+                        ]
+                    },
+                    {
+                        "知识点序号": 72,
+                        "知识点标题": "个体经济",
+                        "知识点内容": [
+                            "定位：新民主主义社会五种经济成分中处于十字路口的经济成分"
+                        ]
+                    },
+                    {
+                        "知识点序号": 73,
+                        "知识点标题": "中国进入社会主义社会最主要的标志",
+                        "知识点内容": [
+                            "时间：1956年底",
+                            "标志：社会主义改造完成，社会主义经济制度建立（生产资料公有制、按劳分配、计划经济体制）"
+                        ]
+                    },
+                    {
+                        "知识点序号": 74,
+                        "知识点标题": "资本主义工商业改造",
+                        "知识点内容": [
+                            "步骤1：初级形式国家资本主义（计划订货、统购包销，社会主义萌芽性质）",
+                            "步骤2：个别企业公私合营（四马分肥，半社会主义性质）",
+                            "步骤3：全行业公私合营（社会主义性质）",
+                            "对比：农业改造（互助组→初级社→高级社）、手工业改造（生产合作小组→供销合作小组→生产合作社）"
+                        ]
+                    },
+                    {
+                        "知识点序号": 75,
+                        "知识点标题": "三大改造中农业社会主义改造遵循的原则",
+                        "知识点内容": [
+                            "自愿互利",
+                            "典型示范",
+                            "国家帮助"
+                        ]
+                    },
+                    {
+                        "知识点序号": 76,
+                        "知识点标题": "对个体手工业的社会主义改造",
+                        "知识点内容": [
+                            "方法：说服教育、典型示范、国家帮助",
+                            "方针：积极领导、稳步前进"
+                        ]
+                    },
+                    {
+                        "知识点序号": 77,
+                        "知识点标题": "邓小平理论",
+                        "知识点内容": [
+                            "核心问题：什么是社会主义、怎样建设社会主义",
+                            "重要贡献：揭示社会主义本质，为改革开放和现代化建设提供行动指南",
+                            "定位：中国特色社会主义理论体系奠基之作",
+                            "辨析：“三个代表”（建设什么样的党、怎样建设党）、科学发展观（实现什么样的发展、怎样发展）、习近平新时代中国特色社会主义思想（新时代相关核心问题）"
+                        ]
+                    },
+                    {
+                        "知识点序号": 78,
+                        "知识点标题": "南方谈话",
+                        "知识点内容": [
+                            "核心意义：回答长期困扰人们思想的重大问题",
+                            "定位：解放思想、实事求是的宣言书",
+                            "影响：指导党的十四大，对现代化建设有深远意义"
+                        ]
+                    },
+                    {
+                        "知识点序号": 79,
+                        "知识点标题": "宣言书",
+                        "知识点内容": [
+                            "开创中国特色社会主义道路和理论的宣言书：《解放思想实事求是团结一致向前看》",
+                            "推进改革开放新阶段的宣言书：南方谈话"
+                        ]
+                    },
+                    {
+                        "知识点序号": 80,
+                        "知识点标题": "宪法",
+                        "知识点内容": [
+                            "临时宪法：《中国人民政治协商会议共同纲领》（非社会主义类型）",
+                            "社会主义类型宪法：1954年《中华人民共和国宪法》（人民民主原则、社会主义原则）"
+                        ]
+                    }
+                ]
+            },
+            {
+                "模块": "新思想",
+                "子模块": "法",
+                "知识点列表": [
+                    {
+                        "知识点序号": 81,
+                        "知识点标题": "全面依法治国",
+                        "知识点内容": [
+                            "核心环节：科学立法（前提）、严格执法（关键）、司法保障（重点）、全民守法（基础）",
+                            "根本目的：依法保障人民权益",
+                            "根本保证：党的领导",
+                            "总目标：建设中国特色社会主义法治体系，建设社会主义法治国家",
+                            "总抓手：中国特色社会主义法治体系",
+                            "基本原则：党的领导、人民主体地位、法律面前人人平等、依法治国与以德治国相结合、从中国实际出发",
+                            "定位：中国特色社会主义本质要求和重要保障"
+                        ]
+                    },
+                    {
+                        "知识点序号": 82,
+                        "知识点标题": "权利保障",
+                        "知识点内容": [
+                            "宪法保障：前提和基础",
+                            "立法保障：重要条件",
+                            "行政保护：关键环节",
+                            "司法保障：最后防线"
+                        ]
+                    },
+                    {
+                        "知识点序号": 83,
+                        "知识点标题": "法律的运行",
+                        "知识点内容": [
+                            "法律制定：起始性和关键性环节",
+                            "法律执行：重要环节",
+                            "法律适用：专门活动",
+                            "法律遵守：基本途径"
+                        ]
+                    },
+                    {
+                        "知识点序号": 84,
+                        "知识点标题": "我国公民的最高法律义务",
+                        "知识点内容": [
+                            "维护国家统一和全国各民族团结"
+                        ]
+                    },
+                    {
+                        "知识点序号": 85,
+                        "知识点标题": "建设中特法治体系",
+                        "知识点内容": [
+                            "高效的法治实施体系：重点",
+                            "完备的法律规范体系：前提",
+                            "有力的法治保障体系：重要依托",
+                            "完善的党内法规体系：本质要求",
+                            "严密的法治监督体系：重要保障"
+                        ]
+                    },
+                    {
+                        "知识点序号": 86,
+                        "知识点标题": "法律至上",
+                        "知识点内容": [
+                            "具体表现：普遍适用性（人人遵守）、优先适用性（矛盾时优先适用）、不可违反性（违反受惩罚）"
+                        ]
+                    }
+                ]
+            },
+            {
+                "模块": "新思想",
+                "子模块": "党",
+                "知识点列表": [
+                    {
+                        "知识点序号": 87,
+                        "知识点标题": "实现党的全面领导",
+                        "知识点内容": [
+                            "制度安排：党中央对重大工作的领导体制",
+                            "关键要求：加强党中央对党和国家重大工作的领导"
+                        ]
+                    },
+                    {
+                        "知识点序号": 88,
+                        "知识点标题": "党的纪律",
+                        "知识点内容": [
+                            "核心纪律：政治纪律（最重要、最根本、最关键）",
+                            "纪律建设定位：全面从严治党的治本之策"
+                        ]
+                    },
+                    {
+                        "知识点序号": 89,
+                        "知识点标题": "党内监督、制度建设",
+                        "知识点内容": [
+                            "党内监督：最根本、第一位的监督，党的肌体健康的生命之源",
+                            "制度建设：贯穿政治、思想、组织、作风、纪律建设"
+                        ]
+                    },
+                    {
+                        "知识点序号": 90,
+                        "知识点标题": "马克思主义科学理论",
+                        "知识点内容": [
+                            "根本所在：党坚定信仰信念、把握历史主动",
+                            "政治优势：拥有马克思主义科学理论指导"
+                        ]
+                    },
+                    {
+                        "知识点序号": 91,
+                        "知识点标题": "我们党区别于其他政党",
+                        "知识点内容": [
+                            "显著标志：三大作风（中共七大）、勇于自我革命、人民立场（新大纲）",
+                            "根本标志：全心全意为人民服务",
+                            "人民立场定位：党的根本政治立场"
+                        ]
+                    },
+                    {
+                        "知识点序号": 92,
+                        "知识点标题": "统一战线（新时代）",
+                        "知识点内容": [
+                            "鲜明特征：党的领导",
+                            "核心问题：坚持党的领导",
+                            "领导方式：政治领导（政治原则、方向、重大方针政策）",
+                            "领导体现：党委领导、集体领导（非部门、个人领导）"
+                        ]
+                    },
+                    {
+                        "知识点序号": 93,
+                        "知识点标题": "自我革命",
+                        "知识点内容": [
+                            "显著标志：区别于其他政党的显著标志，党最鲜明的品格",
+                            "历史周期率答案：第二个答案",
+                            "最大优势：勇于自我革命",
+                            "重要途径：自我净化、自我完善、自我革新、自我提高",
+                            "实践要求：根本保证（党中央集中统一领导）、根本目的（引领伟大社会革命）、根本遵循（习近平新时代中国特色社会主义思想）等九方面"
+                        ]
+                    },
+                    {
+                        "知识点序号": 94,
+                        "知识点标题": "党的领导（总体定位）",
+                        "知识点内容": [
+                            "本质特征：中国特色社会主义最本质的特征",
+                            "最大优势：中国特色社会主义制度的最大优势",
+                            "制度之根：中国特色社会主义制度体系的“根”和“源”",
+                            "根本保证：全面依法治国、人民当家作主、国家安全、民族复兴等的根本保证",
+                            "最大区别：我国法治与西方资本主义法治的最大区别",
+                            "最高原则：党中央集中统一领导"
+                        ]
+                    }
+                ]
+            },
+            {
+                "模块": "新思想",
+                "子模块": "发展",
+                "知识点列表": [
+                    {
+                        "知识点序号": 95,
+                        "知识点标题": "新发展理念",
+                        "知识点内容": [
+                            "内涵：创新（第一动力）、协调（内在要求）、绿色（必要条件）、开放（必由之路）、共享（本质要求）",
+                            "定位：指挥棒、红绿灯，引领发展全局深刻变革",
+                            "把握要求：根本宗旨、问题导向、忧患意识"
+                        ]
+                    },
+                    {
+                        "知识点序号": 96,
+                        "知识点标题": "科学发展观",
+                        "知识点内容": [
+                            "第一要义：推动经济社会发展",
+                            "核心立场：以人为本",
+                            "基本要求：全面协调可持续",
+                            "根本方法：统筹兼顾"
+                        ]
+                    },
+                    {
+                        "知识点序号": 97,
+                        "知识点标题": "新发展格局",
+                        "知识点内容": [
+                            "基本立足点：满足国内需求",
+                            "主线：深化供给侧结构性改革",
+                            "最本质特征：高水平自立自强",
+                            "战略方向：供给侧结构性改革",
+                            "关键：经济循环畅通无阻",
+                            "战略支撑：科技自立自强",
+                            "保障：守住安全发展底线"
+                        ]
+                    },
+                    {
+                        "知识点序号": 98,
+                        "知识点标题": "高质量发展",
+                        "知识点内容": [
+                            "首要任务：全面建设社会主义现代化国家的首要任务",
+                            "必由之路：高水平科技自立自强",
+                            "主线：深化供给侧改革",
+                            "必然要求：农业现代化",
+                            "战略基点：构建新发展格局",
+                            "最终目的：人民幸福安康",
+                            "关键环节：经济社会发展绿色化低碳化",
+                            "根本遵循：习近平经济思想",
+                            "基本特征：由高速增长转向高质量发展",
+                            "产业着力点：实体经济"
+                        ]
+                    }
+                ]
+            },
+            {
+                "模块": "新思想",
+                "子模块": "帽子题",
+                "知识点列表": [
+                    {
+                        "知识点序号": 99,
+                        "知识点标题": "良好的生态环境",
+                        "知识点内容": [
+                            "最公平的公共产品",
+                            "最普惠的民生福祉"
+                        ]
+                    },
+                    {
+                        "知识点序号": 100,
+                        "知识点标题": "制度",
+                        "知识点内容": [
+                            "根本政治制度：人民代表大会制度",
+                            "基本政治制度：中国共产党领导的多党合作和政治协商制度",
+                            "易错点：政协是组织，政协制度是基本政治制度"
+                        ]
+                    },
+                    {
+                        "知识点序号": 101,
+                        "知识点标题": "精神核心",
+                        "知识点内容": [
+                            "时代精神核心：改革创新",
+                            "民族精神核心：爱国主义",
+                            "五四精神核心：爱国主义"
+                        ]
+                    },
+                    {
+                        "知识点序号": 102,
+                        "知识点标题": "根基前提辨析",
+                        "知识点内容": [
+                            "国家安全：民族复兴的根基",
+                            "社会稳定：国家强盛的前提",
+                            "农业强国：社会主义现代化强国的根基"
+                        ]
+                    },
+                    {
+                        "知识点序号": 103,
+                        "知识点标题": "科技自立自强",
+                        "知识点内容": [
+                            "核心定位：国家强盛之基、安全之要",
+                            "发展支撑：促进发展大局的根本支撑、国家发展的战略支撑"
+                        ]
+                    },
+                    {
+                        "知识点序号": 104,
+                        "知识点标题": "平等",
+                        "知识点内容": [
+                            "社会主义法律的基本属性",
+                            "社会主义法治的基本要求"
+                        ]
+                    },
+                    {
+                        "知识点序号": 105,
+                        "知识点标题": "金融工作",
+                        "知识点内容": [
+                            "根本宗旨：服务实体经济",
+                            "永恒主题：防控风险"
+                        ]
+                    },
+                    {
+                        "知识点序号": 106,
+                        "知识点标题": "改善生活",
+                        "知识点内容": [
+                            "正确处理改革发展稳定关系的结合点"
+                        ]
+                    },
+                    {
+                        "知识点序号": 107,
+                        "知识点标题": "共建共治共享",
+                        "知识点内容": [
+                            "共建：基础",
+                            "共治：关键",
+                            "共享：目标"
+                        ]
+                    },
+                    {
+                        "知识点序号": 108,
+                        "知识点标题": "摸石头过河",
+                        "知识点内容": [
+                            "定位：富有中国特色、符合中国国情的改革方法"
+                        ]
+                    },
+                    {
+                        "知识点序号": 109,
+                        "知识点标题": "构建更高水平开放型经济体制",
+                        "知识点内容": [
+                            "重点：制度型开放"
+                        ]
+                    },
+                    {
+                        "知识点序号": 110,
+                        "知识点标题": "决定社会主义文化事业前途命运的关键",
+                        "知识点内容": [
+                            "坚持为人民服务、为社会主义服务的根本方向"
+                        ]
+                    },
+                    {
+                        "知识点序号": 111,
+                        "知识点标题": "区域辨析",
+                        "知识点内容": [
+                            "京津冀：中国式现代化建设的先行区、示范区",
+                            "浦东新区：社会主义现代化建设引领区",
+                            "浙江：高质量发展建设共同富裕示范区",
+                            "深圳：中国特色社会主义先行示范区",
+                            "福建：两岸融合发展示范区"
+                        ]
+                    },
+                    {
+                        "知识点序号": 112,
+                        "知识点标题": "四个全面战略布局",
+                        "知识点内容": [
+                            "全面建设社会主义现代化国家（引领地位）",
+                            "全面深化改革",
+                            "全面依法治国",
+                            "全面从严治党"
+                        ]
+                    },
+                    {
+                        "知识点序号": 113,
+                        "知识点标题": "民营经济",
+                        "知识点内容": [
+                            "定位：推进中国式现代化的生力军（非主力军）",
+                            "性质：非公有制经济，社会主义市场经济的重要组成部分（非社会主义经济）"
+                        ]
+                    },
+                    {
+                        "知识点序号": 114,
+                        "知识点标题": "国有企业",
+                        "知识点内容": [
+                            "物质和政治基础：中国特色社会主义的重要物质基础和政治基础",
+                            "执政支柱：党执政兴国的重要支柱和依靠力量"
+                        ]
+                    },
+                    {
+                        "知识点序号": 115,
+                        "知识点标题": "坚定制度自信",
+                        "知识点内容": [
+                            "首要：坚定对中国特色社会主义政治制度的自信"
+                        ]
+                    },
+                    {
+                        "知识点序号": 116,
+                        "知识点标题": "一根红线",
+                        "知识点内容": [
+                            "中国革命道德：全心全意为人民服务",
+                            "习近平新时代中国特色社会主义思想：人民至上"
+                        ]
+                    },
+                    {
+                        "知识点序号": 117,
+                        "知识点标题": "一国两制",
+                        "知识点内容": [
+                            "最高原则：维护国家主权、安全、发展利益",
+                            "根本宗旨：维护国家主权、安全、发展利益，保持港澳长期繁荣稳定"
+                        ]
+                    },
+                    {
+                        "知识点序号": 118,
+                        "知识点标题": "关键一步、关键一招",
+                        "知识点内容": [
+                            "关键一步：全面建成小康社会（迈向民族复兴）",
+                            "关键一招：改革开放（决定当代中国命运、“两个一百年”目标、民族复兴）"
+                        ]
+                    },
+                    {
+                        "知识点序号": 119,
+                        "知识点标题": "新型城镇化",
+                        "知识点内容": [
+                            "首要任务：推进农业转移人口市民化"
+                        ]
+                    },
+                    {
+                        "知识点序号": 120,
+                        "知识点标题": "中国特色社会主义进入新时代判断依据",
+                        "知识点内容": [
+                            "基本依据：我国社会主要矛盾发生新变化"
+                        ]
+                    },
+                    {
+                        "知识点序号": 121,
+                        "知识点标题": "坚持法治国家、法治政府、法治社会一体建设",
+                        "知识点内容": [
+                            "法治国家：法治建设的目标",
+                            "法治政府：全面依法治国的重点任务和主体工程",
+                            "法治社会：构筑法治国家的基础，基础工程"
+                        ]
+                    },
+                    {
+                        "知识点序号": 122,
+                        "知识点标题": "出发点与落脚点",
+                        "知识点内容": [
+                            "现代化建设：实现人民对美好生活的向往",
+                            "发展：满足人民对美好生活的新期待",
+                            "改革开放：更好实现和维护人民利益，让老百姓过上好日子",
+                            "民主政治建设：实现最广大人民根本利益",
+                            "文艺工作：满足人民精神文化需求",
+                            "全面建设社会主义现代化国家：让人民生活越过越好",
+                            "国家富强、民族振兴：人民幸福",
+                            "全面深化改革：促进社会公平正义、增进人民福祉",
+                            "补充：全军建设（提高战斗力）、对外工作（维护国家主权安全发展利益）"
+                        ]
+                    },
+                    {
+                        "知识点序号": 123,
+                        "知识点标题": "必由之路",
+                        "知识点内容": [
+                            "坚持和发展中国特色社会主义：坚持党的全面领导、改革开放",
+                            "民族复兴：中国特色社会主义",
+                            "创造历史伟业：团结奋斗",
+                            "新时代发展壮大：贯彻新发展理念",
+                            "党永葆生机活力：全面从严治党",
+                            "国家繁荣发展：开放",
+                            "高质量发展：高水平科技自立自强",
+                            "攀登科技高峰：自主创新",
+                            "全面准确贯彻“一国两制”：依法治港治澳"
+                        ]
+                    }
+                ]
+            },
+            {
+                "模块": "新思想",
+                "子模块": "大专题",
+                "知识点列表": [
+                    {
+                        "知识点序号": 124,
+                        "知识点标题": "外交",
+                        "知识点内容": [
+                            "宗旨：维护世界和平、促进共同发展",
+                            "主线：服务民族复兴、促进人类进步",
+                            "周边外交：理念（亲诚惠容）、方针（亲诚惠容+与邻为善、以邻为伴）",
+                            "新型国际关系：相互尊重、公平正义、合作共赢（核心），对话不对抗、结伴不结盟"
+                        ]
+                    },
+                    {
+                        "知识点序号": 125,
+                        "知识点标题": "两大历史任务",
+                        "知识点内容": [
+                            "内容：争取民族独立、人民解放；实现国家富强、人民幸福",
+                            "区别：主题、内容、实现方式不同",
+                            "联系：前一任务为后一任务扫清障碍；后一任务是前一任务的最终目的和必然要求"
+                        ]
+                    },
+                    {
+                        "知识点序号": 126,
+                        "知识点标题": "文化",
+                        "知识点内容": [
+                            "文化自信基础：中华优秀传统文化（深厚基础）、革命文化和社会主义先进文化（坚强基石）、中国特色社会主义伟大实践（现实基础）",
+                            "根本特征：中华民族创造的优秀传统文化",
+                            "核心自信：道路自信、理论自信、制度自信归根结底是文化自信"
+                        ]
+                    },
+                    {
+                        "知识点序号": 127,
+                        "知识点标题": "教育",
+                        "知识点内容": [
+                            "教育强国：根本保证（党的全面领导）、根本任务（立德树人）、根本目标（为党育人、为国育才）、重要使命（服务民族复兴）、核心功能（支撑引领中国式现代化）",
+                            "根本问题：培养什么人、怎样培养人、为谁培养人",
+                            "发展尺度：人民满意",
+                            "基础性支撑：科技、人才、创新（基础性、战略性支撑，先导任务）",
+                            "教育强国定位：民族梦寐以求的愿望，现代化、民族复兴的坚实基础和战略支撑",
+                            "核心要素：科技是第一生产力、人才是第一资源、创新是第一动力"
+                        ]
+                    },
+                    {
+                        "知识点序号": 128,
+                        "知识点标题": "中国式现代化",
+                        "知识点内容": [
+                            "五个特征：全体人民共同富裕（本质特征）、人口规模巨大（显著特征）、和平发展道路（突出特征）、人与自然和谐共生（鲜明特点）、物质文明和精神文明相协调（崇高追求）",
+                            "重要意义：创造人类文明新形态，提供全新现代化模式，超越西方式现代化，为发展中国家提供新选择",
+                            "核心定位：贯穿各领域各方面的红线；开放是鲜明标识；发展全过程人民民主是本质要求；城乡融合发展是必然要求"
+                        ]
+                    },
+                    {
+                        "知识点序号": 129,
+                        "知识点标题": "爱国主义",
+                        "知识点内容": [
+                            "着力点和落脚点：维护祖国统一和民族团结（公民最高义务）",
+                            "民族工作出发点和落脚点：民族复兴",
+                            "爱国主义教育主题：旧提法（民族复兴中国梦）、新提法（全面建成社会主义现代化强国、民族复兴）",
+                            "总任务：实现社会主义现代化和民族复兴",
+                            "历史责任：促进中华儿女大团结（新时代爱国统一战线）",
+                            "核心体现：爱国、爱党、爱社会主义相统一",
+                            "本质：爱国、爱党、爱社会主义高度统一"
+                        ]
+                    },
+                    {
+                        "知识点序号": 130,
+                        "知识点标题": "总体国家安全观",
+                        "知识点内容": [
+                            "核心内涵：宗旨（人民安全）、根本（政治安全）、基础（经济安全）、保障（社会安全）、依托（国际安全）",
+                            "有机统一：政治安全、人民安全、国家利益至上相统一",
+                            "根本保证：政治安全是维护人民安全和国家利益的根本保证",
+                            "中心地位：人民安全居于中心地位，保障人民利益",
+                            "准则：国家利益至上",
+                            "治本之策：健全国家安全体系、加强国家安全制度建设",
+                            "立国之基：国土安全",
+                            "首要任务：维护政治安全（应对各领域安全风险）"
+                        ]
+                    },
+                    {
+                        "知识点序号": 131,
+                        "知识点标题": "进一步全面深化改革",
+                        "知识点内容": [
+                            "推进要求：以总目标为引领、制度建设为主线、经济体制改革为重点、重要领域和关键环节为突破口",
+                            "主题：推进中国式现代化",
+                            "总目标：完善和发展中国特色社会主义制度，推进国家治理体系和治理能力现代化",
+                            "基本原则：党的全面领导（首位）、以人民为中心、守正创新、制度建设为主线、全面依法治国、系统观念",
+                            "政府与市场关系：市场起决定性作用，政府管好市场管不了的事，有效市场和有为政府相结合"
+                        ]
+                    },
+                    {
+                        "知识点序号": 132,
+                        "知识点标题": "中华文明的突出特性",
+                        "知识点内容": [
+                            "连续性：决定中华民族必然走自己的路",
+                            "创新性：决定进取精神、无畏品格（守正不守旧、尊古不复古，不惧新挑战、接受新事物）",
+                            "统一性：决定文化融合、国土不可分、国家统一是核心利益、坚强统一国家是各族人民命运所系",
+                            "包容性：决定交往交流交融取向、宗教多元并存、兼收并蓄开放胸怀",
+                            "和平性：决定是世界和平建设者、发展贡献者、秩序维护者，不搞文化霸权，不强加价值观念和政治体制，坚持合作不搞对抗"
+                        ]
+                    },
+                    {
+                        "知识点序号": 133,
+                        "知识点标题": "就业",
+                        "知识点内容": [
+                            "核心定位：最基本的民生，最大的民生工程、民心工程、根基工程",
+                            "收入分配：民生之源，最直接的利益共享方式",
+                            "主要矛盾：人力资源供需不匹配"
+                        ]
+                    },
+                    {
+                        "知识点序号": 134,
+                        "知识点标题": "2035和2050目标",
+                        "知识点内容": [
+                            "全面深化改革总目标：完善和发展中国特色社会主义制度，推进国家治理体系和治理能力现代化",
+                            "2035年目标：高水平社会主义市场经济体制、制度更加完善、基本实现国家治理现代化和社会主义现代化",
+                            "两步走战略：2020-2035（基本现代化）、2035-本世纪中叶（社会主义现代化强国，共同富裕基本实现）",
+                            "辨析：2035年多为模糊说法，2050年多为确切说法"
+                        ]
+                    },
+                    {
+                        "知识点序号": 135,
+                        "知识点标题": "全面推进乡村振兴",
+                        "知识点内容": [
+                            "底线任务：巩固脱贫攻坚成果",
+                            "总目标：农业农村现代化",
+                            "总方针：农业农村优先发展",
+                            "制度保障：城乡融合发展体制机制和政策体系",
+                            "首要任务：确保重要农产品特别是粮食供给",
+                            "核心底线：保障国家粮食安全、不发生规模性返贫",
+                            "中心任务：增加农民收入",
+                            "重要定位：农业强国是现代化强国根基，农村是最艰巨繁重的任务和最广泛深厚的基础",
+                            "2024年及今后要求：以“千万工程”经验为引领，以粮食安全和不发生规模性返贫为底线",
+                            "重要搭配：总抓手（推进乡村全面振兴）、重中之重（产业振兴）、头等大事（保障粮食和重要农产品供给）"
+                        ]
+                    },
+                    {
+                        "知识点序号": 136,
+                        "知识点标题": "六个必须坚持",
+                        "知识点内容": [
+                            "核心内涵：坚持人民至上、自信自立、守正创新、问题导向、系统观念、胸怀天下",
+                            "坚持人民至上：根本价值立场，体现群众史观",
+                            "坚持自信自立：内在精神特征，体现客观规律性与主观能动性统一",
+                            "坚持守正创新：鲜明理论品格，体现变与不变、继承与发展统一",
+                            "坚持问题导向：重要实践要求，体现矛盾普遍性和客观性",
+                            "坚持系统观念：基本思想和工作方法，体现普遍联系原理",
+                            "坚持胸怀天下：境界格局，体现人类进步和解放的崇高理想"
+                        ]
+                    }
+                ]
+            }
+        ]
+    };
+    // --- 粘贴结束 ---
+
+
+    // --- 2. App State & DOM Elements ---
+    let allKnowledgePoints = [];
+    let progressData = {}; // { [id]: { level, nextReview } }
+    let t1Pool = [];
+    let duePool = [];
+    let newPool = [];
+    let sessionQueue = [];
+    let currentCard = null;
+    let currentSessionTotal = 0;
+
+    const allViews = document.querySelectorAll('.app-view');
+    const flashcardEl = document.getElementById('flashcard');
+    // --- 新增 --- (获取进度条元素的引用)
+    const progressBarEl = document.getElementById('session-progress-bar');
+
+    // --- 3. Spaced Repetition Settings ---
+    // L0: new
+    // L1: 1 day (T+1 强行复习)
+    // L2: 3 days
+    // L3: 7 days (Mastered)
+    // L4: 14 days
+    // ...
+    const DAY_IN_MINUTES = 60 * 24;
+    const reviewIntervals = [
+        0,
+        DAY_IN_MINUTES * 1,  // L1
+        DAY_IN_MINUTES * 3,  // L2
+        DAY_IN_MINUTES * 7,  // L3
+        DAY_IN_MINUTES * 14, // L4
+        DAY_IN_MINUTES * 30, // L5
+        DAY_IN_MINUTES * 60  // L6
+    ];
+    const STORAGE_KEY = 'kaoyanPoliticsProgress_v2';
+    const MASTERED_LEVEL = 3; // L3 (7 days) is "mastered"
+
+    // --- 4. Utility Functions ---
+
+    /**
+     * 视图管理器 (使用 Tailwind .hidden 类)
+     */
+    function showView(viewId) {
+        allViews.forEach(view => {
+            view.classList.add('hidden'); // 隐藏所有视图
+        });
+        const activeView = document.getElementById(viewId);
+        if (activeView) {
+            activeView.classList.remove('hidden'); // 只显示激活的视图
+        } else {
+            console.error('View not found:', viewId);
+            document.getElementById('view-loading').classList.remove('hidden');
+        }
+    }
+
+    /**
+     * 加载/保存进度
+     */
+    function loadProgress() {
+        const data = localStorage.getItem(STORAGE_KEY);
+        progressData = data ? JSON.parse(data) : {};
+    }
+
+    function saveProgress() {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(progressData));
+    }
+
+    /**
+     * 洗牌算法
+     */
+    function shuffleArray(array) {
+        let newArr = [...array];
+        for (let i = newArr.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [newArr[i], newArr[j]] = [newArr[j], newArr[i]];
+        }
+        return newArr;
+    }
+
+    /**
+     * 扁平化知识点数据
+     */
+    function flattenKnowledgePoints(data) {
+        const flatList = [];
+        if (data && data["考研政治知识点总集"]) {
+            data["考研政治知识点总集"].forEach(module => {
+                if (module && module["知识点列表"]) {
+                    module["知识点列表"].forEach(point => {
+                        if(point && point["知识点序号"]) {
+                            flatList.push({
+                                id: point["知识点序号"],
+                                module: module["模块"],
+                                submodule: module["子模块"],
+                                title: point["知识点标题"],
+                                content: point["知识点内容"]
+                            });
+                        }
+                    });
+                }
+            });
+        } else {
+            console.error("JSON 结构不正确，未找到 '考研政治知识点总集'");
+        }
+        return flatList;
+    }
+
+
+    // --- 5. Core Logic ---
+
+    /**
+     * 1. 计算卡池 (核心)
+     */
+    function calculatePools() {
+        t1Pool = [];
+        duePool = [];
+        newPool = [];
+
+        const now = Date.now();
+
+        for (const point of allKnowledgePoints) {
+            const progress = progressData[point.id];
+
+            if (!progress) {
+                newPool.push(point);
+            } else if (progress.nextReview <= now) {
+                if (progress.level === 1) {
+                    t1Pool.push(point);
+                } else if (progress.level > 1) {
+                    duePool.push(point);
+                }
+            }
+        }
+    }
+
+    /**
+     * 2. 更新仪表盘UI
+     */
+    function updateDashboardUI() {
+        document.getElementById('pool-t1').textContent = t1Pool.length;
+        document.getElementById('pool-due').textContent = duePool.length;
+        document.getElementById('pool-new').textContent = newPool.length;
+
+        document.getElementById('clear-t1-count').textContent = t1Pool.length;
+        document.getElementById('clear-all-due-count').textContent = t1Pool.length + duePool.length;
+    }
+
+    /**
+     * 3. 构建会话队列 (混卡器)
+     * --- 逻辑修复 (卡片数量不足问题) ---
+     * 增加了“回填”逻辑：如果按比例填充后还有空位，用更多的新卡片填满。
+     */
+    function buildSessionQueue(config) {
+        let queue = [];
+        let newCardsInQueue = 0; // 追踪已加入的新卡数量
+
+        let shuffledT1 = shuffleArray(t1Pool);
+        let shuffledDue = shuffleArray(duePool);
+        let shuffledNew = shuffleArray(newPool);
+
+        if (config.clear) {
+            // 激进模式
+            if (config.clear === 't1') {
+                queue = shuffledT1;
+            } else if (config.clear === 'allDue') {
+                queue = [...shuffledT1, ...shuffledDue];
+            }
+        } else if (config.target) {
+            // 常规模式
+            let { target, newCardRatio } = config;
+            let newCardLimit = Math.floor(target * newCardRatio);
+
+            // 1. 保障新卡 (按比例)
+            let newCardsToAdd = Math.min(shuffledNew.length, newCardLimit);
+            queue.push(...shuffledNew.slice(0, newCardsToAdd));
+            newCardsInQueue = newCardsToAdd;
+
+            let remainingSlots = target - newCardsToAdd;
+
+            // 2. T+1 优先
+            let t1CardsToAdd = Math.min(shuffledT1.length, remainingSlots);
+            queue.push(...shuffledT1.slice(0, t1CardsToAdd));
+            remainingSlots -= t1CardsToAdd;
+
+            // 3. 到期卡填充
+            if (remainingSlots > 0) {
+                let dueCardsToAdd = Math.min(shuffledDue.length, remainingSlots);
+                queue.push(...shuffledDue.slice(0, dueCardsToAdd));
+                remainingSlots -= dueCardsToAdd;
+            }
+
+            // --- 新增 (回填逻辑) ---
+            // 4. 如果还有剩余空位 (通常因为复习卡不够)，并且新卡池还有卡，用新卡填满
+            if (remainingSlots > 0 && newCardsInQueue < shuffledNew.length) {
+                let remainingNewCards = shuffledNew.slice(newCardsInQueue); // 拿到剩下未入队的新卡
+                let backfillNewCardsToAdd = Math.min(remainingNewCards.length, remainingSlots);
+                queue.push(...remainingNewCards.slice(0, backfillNewCardsToAdd));
+                // 此时 remainingSlots 不再需要更新
+            }
+        }
+
+        sessionQueue = shuffleArray(queue); // 最终再次打乱
+        currentSessionTotal = sessionQueue.length;
+    }
+
+
+    /**
+     * 4. 开始会话
+     */
+    function startSession(config) {
+        buildSessionQueue(config);
+
+        if (sessionQueue.length === 0) {
+            // --- 修复 --- (使用自定义提示框)
+            showCustomAlert('没有符合条件的卡片开始学习。');
+            return;
+        }
+
+        // --- 新增 --- (重置进度条)
+        updateSessionProgress(0, currentSessionTotal);
+        drawNextCard();
+        showView('view-session');
+    }
+
+    /**
+     * 5. 抽卡
+     */
+    function drawNextCard() {
+        if (sessionQueue.length === 0) {
+            // 会话结束
+            showCustomAlert('本次会话已完成！');
+            // 自动返回仪表盘并刷新
+            calculatePools();
+            updateDashboardUI();
+            showView('view-dashboard');
+            return;
+        }
+
+        currentCard = sessionQueue.shift();
+
+        let currentCount = currentSessionTotal - sessionQueue.length;
+        updateSessionProgress(currentCount, currentSessionTotal);
+
+        displayCard(currentCard);
+        flashcardEl.classList.remove('is-flipped');
+    }
+
+    /**
+     * 6. 更新会话进度
+     * --- 修复 --- (增加进度条更新逻辑)
+     */
+    function updateSessionProgress(current, total) {
+        document.getElementById('session-progress').textContent = `${current} / ${total}`;
+
+        // --- 新增 --- (更新进度条)
+        let percentage = 0;
+        if (total > 0) {
+            // 当抽第一张卡时 (current=1)，进度应该是 1/total
+            // 为了让进度条在刚开始时显示一点点，我们用 current
+            percentage = (current / total) * 100;
+        }
+        if (total === 1) {
+            percentage = 100; // 特殊处理只有1张卡的情况
+        }
+
+        progressBarEl.style.width = `${percentage}%`;
+    }
+
+    /**
+     * 7. 评级
+     */
+    function handleRating(action) {
+        if (!currentCard) return;
+
+        const id = currentCard.id;
+        let progress = progressData[id] || { level: 0, nextReview: 0 };
+
+        if (progress.level === 0) {
+            progress.level = 1; // 新卡至少升到L1
+        }
+
+        let intervalMinutes;
+
+        switch (action) {
+            case 'remember':
+                progress.level = Math.min(progress.level + 1, reviewIntervals.length - 1);
+                break;
+            case 'hard':
+                progress.level = 1;
+                break;
+            case 'forgot':
+                progress.level = 1;
+                break;
+        }
+
+        intervalMinutes = reviewIntervals[progress.level];
+        progress.nextReview = Date.now() + intervalMinutes * 60 * 1000;
+
+        progressData[id] = progress;
+        saveProgress();
+
+        // 抽下一张
+        flashcardEl.classList.remove('is-flipped');
+        setTimeout(drawNextCard, 300); // 留出翻转回正面的时间
+    }
+
+    /**
+     * 8. 卡片内容解析
+     */
+    function displayCard(card) {
+        document.getElementById('card-module').textContent = card.module;
+        document.getElementById('card-submodule').textContent = card.submodule;
+        document.getElementById('card-module-back').textContent = card.module;
+        document.getElementById('card-submodule-back').textContent = card.submodule;
+
+        let displayTitle = card.title;
+        let contentTitle = card.title;
+        let promptsHtml = '';
+        let contentHtml = '<ul>';
+
+        if (Array.isArray(card.content) && card.content.length > 0 && typeof card.content[0] === 'string' && card.content[0].includes('：')) {
+            let promptsList = [];
+            card.content.forEach(item => {
+                const colonIndex = item.indexOf('：');
+                if (colonIndex > 0) {
+                    promptsList.push(item.substring(0, colonIndex + 1));
+                } else {
+                    promptsList.push(item);
+                }
+                contentHtml += `<li class="mb-2">${item}</li>`;
+            });
+
+            promptsHtml = '<ul class="list-disc list-inside">';
+            promptsList.forEach(prompt => {
+                promptsHtml += `<li class="mb-1">${prompt}</li>`;
+            });
+            promptsHtml += '</ul>';
+
+        } else if (Array.isArray(card.content)) {
+            promptsHtml = '<p class="text-gray-500 italic text-center">请回忆此知识点的内容...</p>';
+            card.content.forEach(item => {
+                contentHtml += `<li class="mb-2">${item}</li>`;
+            });
+        } else {
+            promptsHtml = '<p class="text-gray-500 italic text-center">请回忆此知识点的内容...</p>';
+            contentHtml = `<p>${card.content}</p>`;
+        }
+        contentHtml += '</ul>';
+
+        document.getElementById('card-title').textContent = displayTitle;
+        document.getElementById('card-prompts').innerHTML = promptsHtml;
+        document.getElementById('card-title-back').textContent = contentTitle;
+        document.getElementById('card-content').innerHTML = contentHtml;
+    }
+
+    /**
+     * 9. 统计与管理功能
+     */
+    function renderStats() {
+        let numNew = 0;
+        let numLearning = 0;
+        let numMastered = 0;
+
+        for (const point of allKnowledgePoints) {
+            const progress = progressData[point.id];
+            if (!progress) {
+                numNew++;
+            } else if (progress.level < MASTERED_LEVEL) {
+                numLearning++;
+            } else {
+                numMastered++;
+            }
+        }
+
+        document.getElementById('count-new').textContent = numNew;
+        document.getElementById('count-learning').textContent = numLearning;
+        document.getElementById('count-mastered').textContent = numMastered;
+        document.getElementById('stats-total').textContent = `总共 ${allKnowledgePoints.length} 个知识点`;
+    }
+
+    // --- 修复 --- (替换 alert 和 confirm)
+    /**
+     * 10. 自定义提示框 (替换 alert/confirm)
+     */
+    function showCustomAlert(message, isConfirm = false, onConfirm = null) {
+        // 移除旧的提示框
+        const oldAlert = document.getElementById('custom-alert');
+        if (oldAlert) oldAlert.remove();
+
+        // 创建遮罩
+        const overlay = document.createElement('div');
+        overlay.id = 'custom-alert';
+        overlay.className = "fixed inset-0 bg-black bg-opacity-50 z-40 flex items-center justify-center p-4";
+
+        // 创建内容框
+        const contentBox = document.createElement('div');
+        contentBox.className = "bg-white rounded-lg shadow-xl p-6 w-full max-w-sm";
+
+        // 消息
+        const messageEl = document.createElement('p');
+        messageEl.className = "text-lg text-gray-800 mb-6 text-center";
+        messageEl.textContent = message;
+        contentBox.appendChild(messageEl);
+
+        // 按钮容器
+        const buttonBox = document.createElement('div');
+        if (isConfirm) {
+            buttonBox.className = "grid grid-cols-2 gap-4";
+        } else {
+            buttonBox.className = "flex justify-center";
+        }
+        contentBox.appendChild(buttonBox);
+
+        // 关闭/确认 按钮
+        const okButton = document.createElement('button');
+        okButton.textContent = isConfirm ? '确定' : '好的';
+        okButton.className = "w-full py-2 px-4 rounded-lg font-semibold shadow-md transition-all";
+        if (isConfirm) {
+            okButton.className += " bg-red-600 text-white hover:bg-red-700";
+        } else {
+            okButton.className += " bg-blue-600 text-white hover:bg-blue-700";
+        }
+
+        okButton.onclick = () => {
+            if (onConfirm) onConfirm();
+            overlay.remove();
+        };
+        buttonBox.appendChild(okButton);
+
+        // 取消按钮 (仅限 confirm)
+        if (isConfirm) {
+            const cancelButton = document.createElement('button');
+            cancelButton.textContent = '取消';
+            cancelButton.className = "w-full py-2 px-4 bg-gray-200 text-gray-800 rounded-lg font-semibold hover:bg-gray-300 transition-all";
+            cancelButton.onclick = () => {
+                overlay.remove();
+            };
+            // 确保 "取消" 在 "确定" 之前
+            buttonBox.prepend(cancelButton);
+        }
+
+        overlay.appendChild(contentBox);
+        document.body.appendChild(overlay);
+    }
+
+
+    function resetProgress() {
+        showCustomAlert('您确定要重置所有学习进度吗？此操作不可撤销。', true, () => {
+            progressData = {};
+            localStorage.removeItem(STORAGE_KEY);
+            showCustomAlert('进度已重置。');
+            // 刷新
+            calculatePools();
+            renderStats(); // 刷新统计页的UI
+            updateDashboardUI(); // 刷新仪表盘的UI
+        });
+    }
+
+    function exportProgress() {
+        try {
+            const dataStr = JSON.stringify(progressData, null, 2);
+            const dataBlob = new Blob([dataStr], {type: "application/json"});
+            const url = URL.createObjectURL(dataBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `kaoyan_progress_${new Date().toISOString().split('T')[0]}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        } catch (error) {
+            showCustomAlert('导出失败。');
+            console.error("导出错误:", error);
+        }
+    }
+
+    function importProgress() {
+        const input = document.getElementById('import-file-input');
+        input.click(); // 触发文件选择
+
+        input.onchange = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (event) => {
+                try {
+                    const importedData = JSON.parse(event.target.result);
+                    if (importedData && typeof importedData === 'object') {
+                        showCustomAlert('导入进度将覆盖当前进度，确定吗？', true, () => {
+                            progressData = importedData;
+                            saveProgress();
+                            showCustomAlert('导入成功！');
+                            // 刷新
+                            calculatePools();
+                            renderStats();
+                            updateDashboardUI();
+                        });
+                    } else {
+                        showCustomAlert('导入失败，文件内容格式不正确。');
+                    }
+                } catch (err) {
+                    showCustomAlert('导入失败，文件格式错误。');
+                    console.error("导入错误:", err);
+                }
+            };
+            reader.readAsText(file);
+            input.value = null;
+        };
+    }
+    // --- 修复结束 ---
+
+
+    // --- 6. Event Listeners (全局事件委托) ---
+
+    document.body.addEventListener('click', (e) => {
+        const target = e.target.closest('[data-action]');
+        if (!target) return;
+
+        const action = target.dataset.action;
+
+        switch (action) {
+            // 导航
+            case 'show-dashboard':
+                calculatePools(); // 每次返回都重新计算
+                updateDashboardUI();
+                showView('view-dashboard');
+                break;
+            case 'show-stats':
+                renderStats();
+                showView('view-stats');
+                break;
+
+            // 学习
+            case 'start-session':
+                try {
+                    const config = JSON.parse(target.dataset.config);
+                    startSession(config);
+                } catch(err) {
+                    console.error("启动会话失败，config配置错误:", target.dataset.config, err);
+                    showCustomAlert("启动学习失败，配置错误。");
+                }
+                break;
+            case 'reveal':
+                flashcardEl.classList.add('is-flipped');
+                break;
+            case 'rate-forgot':
+                handleRating('forgot');
+                break;
+            case 'rate-hard':
+                handleRating('hard');
+                break;
+            case 'rate-remember':
+                handleRating('remember');
+                break;
+
+            // 管理
+            case 'reset-progress':
+                resetProgress();
+                break;
+            case 'export-progress':
+                exportProgress();
+                break;
+            case 'import-progress':
+                importProgress();
+                break;
+        }
+    });
+
+    // --- 7. Initialization ---
+
+    /**
+     * 启动应用
+     */
+    function initializeApp() {
+        // 1. 默认显示 "加载中"
+        showView('view-loading');
+        loadProgress();
+
+        try {
+            // 2. `embeddedData` 已在顶部定义
+            allKnowledgePoints = flattenKnowledgePoints(embeddedData);
+
+            if (allKnowledgePoints.length === 0) {
+                const loadingView = document.getElementById('view-loading');
+                loadingView.innerHTML = `<p class="text-red-500 text-lg p-6 text-center"><b>错误：</b>未加载知识点。<br>JSON数据为空或格式不正确。</p>`;
+                return; // 停止执行
+            }
+
+            // 3. 成功加载，计算卡池
+            calculatePools();
+            updateDashboardUI();
+
+            // 4. 切换到仪表盘视图
+            showView('view-dashboard');
+
+        } catch (error) {
+            console.error('加载知识点失败:', error);
+            const loadingView = document.getElementById('view-loading');
+            loadingView.innerHTML = `<p class="text-red-500 text-lg p-6 text-center">加载失败：${error.message}</p>`;
+        }
+    }
+
+    // 启动应用
+    initializeApp();
+
+</script>
+</body>
+</html>
